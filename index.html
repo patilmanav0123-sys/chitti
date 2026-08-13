@@ -23,14 +23,12 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            /* Cyber grid background */
             background-image: 
                 linear-gradient(rgba(0, 255, 255, 0.05) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(0, 255, 255, 0.05) 1px, transparent 1px);
             background-size: 30px 30px;
         }
 
-        /* Top HUD elements */
         .hud-top {
             position: absolute;
             top: 20px;
@@ -49,7 +47,6 @@
             text-shadow: 0 0 5px #ff0055;
         }
 
-        /* Central Core */
         .core-container {
             position: relative;
             width: 300px;
@@ -105,7 +102,6 @@
             text-shadow: 0 0 5px #000;
         }
 
-        /* UI States */
         .listening .core-center {
             background: radial-gradient(circle, #ff0055 10%, transparent 70%);
             box-shadow: 0 0 60px #ff0055;
@@ -124,7 +120,6 @@
             animation: pulse 0.5s infinite;
         }
 
-        /* Terminal Window */
         .terminal {
             width: 90%;
             max-width: 700px;
@@ -158,8 +153,8 @@
 
         .log-user { color: #ff0055; }
         .log-ai { color: #00ffff; font-weight: bold; }
+        .log-error { color: #ff3333; font-weight: bold; }
 
-        /* Controls */
         .controls {
             margin-top: 20px;
             display: flex;
@@ -226,12 +221,16 @@
     <script>
         const systemInstruction = "You are Chitti, an elite AI assistant. Speak in short, highly intelligent, futuristic responses. You understand English, Hindi, and Marathi.";
 
-        let API_KEY = localStorage.getItem('CHITTI_API_KEY');
+        // Added .trim() to prevent invisible spaces from breaking the API key
+        let API_KEY = localStorage.getItem('CHITTI_API_KEY')?.trim();
         if (!API_KEY) { askForKey(); }
 
         function askForKey() {
-            API_KEY = prompt("ENTER GEMINI API KEY TO AUTHENTICATE:");
-            if (API_KEY) { localStorage.setItem('CHITTI_API_KEY', API_KEY); }
+            let input = prompt("ENTER GEMINI API KEY TO AUTHENTICATE:");
+            if (input) { 
+                API_KEY = input.trim();
+                localStorage.setItem('CHITTI_API_KEY', API_KEY); 
+            }
         }
 
         function resetApiKey() {
@@ -256,6 +255,8 @@
                 entry.innerHTML = `<span class="log-user">USER:</span> ${message}`;
             } else if (sender === 'CHITTI') {
                 entry.innerHTML = `<span class="log-ai">CHITTI:</span> ${message}`;
+            } else if (sender === 'SYS_ERR') {
+                entry.innerHTML = `<span class="log-error">> SYS_ERROR: ${message}</span>`;
             } else {
                 entry.innerHTML = `> ${message}`;
             }
@@ -292,7 +293,7 @@
         };
 
         recognition.onerror = () => {
-            logToTerminal('SYS', "AUDIO INPUT ERROR.");
+            logToTerminal('SYS_ERR', "AUDIO INPUT ERROR.");
             setUIState('idle');
             isListening = false;
         };
@@ -318,19 +319,25 @@
             setUIState('thinking');
 
             try {
-                // CORS FIX: The key is back inside the URL string, completely bypassing browser header blocks.
-                const fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+                // The API key MUST be sent in the header, no longer in the URL
+                const fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
                 
                 const response = await fetch(fetchUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }, 
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': API_KEY
+                    }, 
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: promptText }] }],
                         systemInstruction: { parts: [{ text: systemInstruction }] }
                     })
                 });
 
-                if (!response.ok) throw new Error("API REJECTED");
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData?.error?.message || `HTTP ${response.status} - Request Denied`);
+                }
 
                 const data = await response.json();
                 const aiReply = data.candidates[0].content.parts[0].text;
@@ -339,7 +346,12 @@
                 speakReply(aiReply);
 
             } catch (err) {
-                logToTerminal('SYS', "CONNECTION FAILED. CHECK API KEY.");
+                // Now Chitti will print the exact server error out loud to the terminal!
+                if(err.message === 'Failed to fetch') {
+                    logToTerminal('SYS_ERR', "CORS or AdBlocker blocked the connection. Turn off Brave Shields/AdGuard.");
+                } else {
+                    logToTerminal('SYS_ERR', err.message);
+                }
                 setUIState('idle');
             }
         }
