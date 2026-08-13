@@ -150,11 +150,19 @@
             box-shadow: 0 0 25px rgba(0, 243, 255, 0.4);
             transition: all 0.2s ease;
             letter-spacing: 1px;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
 
         .btn-talk:active {
             transform: scale(0.95);
+        }
+
+        .reset-key {
+            font-size: 0.75rem;
+            color: #556677;
+            text-decoration: underline;
+            cursor: pointer;
+            margin-bottom: 20px;
         }
     </style>
 </head>
@@ -176,19 +184,43 @@
     </div>
 
     <button class="btn-talk" id="talkBtn" onclick="toggleListening()">ACTIVATE CHITTI</button>
+    <div class="reset-key" onclick="resetApiKey()">Reset API Key</div>
 
     <script>
-        const API_KEY = "AQ.Ab8RN6ILFlNNNREBwvJQSfuNR8X07-Qjinfpynkd63ZUsSEpfA";
-        const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
-        
+        // System Prompt
         const systemInstruction = "You are Chitti, an advanced, highly intelligent personal AI assistant inspired by the movie Robot. You speak fluently in English, Hindi, and Marathi. Keep responses natural, direct, concise, and helpful.";
 
+        // API Key Management (Local Storage + Hidden from GitHub)
+        let API_KEY = localStorage.getItem('CHITTI_API_KEY');
+
+        if (!API_KEY) {
+            askForKey();
+        }
+
+        function askForKey() {
+            API_KEY = prompt("Please enter your Gemini API Key to activate Chitti (starts with AQ. or AIza):");
+            if (API_KEY) {
+                localStorage.setItem('CHITTI_API_KEY', API_KEY);
+            }
+        }
+
+        function resetApiKey() {
+            localStorage.removeItem('CHITTI_API_KEY');
+            askForKey();
+            if (API_KEY) {
+                alert("API Key updated successfully!");
+            }
+        }
+
+        // UI Elements
         const statusEl = document.getElementById('status');
         const transcriptEl = document.getElementById('transcript');
         const orbContainer = document.getElementById('orbContainer');
         const talkBtn = document.getElementById('talkBtn');
 
         let isListening = false;
+        
+        // Speech Recognition Setup
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (!SpeechRecognition) {
@@ -198,7 +230,7 @@
         const recognition = new SpeechRecognition();
         recognition.continuous = false;
         recognition.interimResults = false;
-        recognition.lang = 'en-IN'; // Works seamlessly across English, Hindi, and Marathi terms
+        recognition.lang = 'en-IN'; 
 
         recognition.onstart = () => {
             isListening = true;
@@ -212,7 +244,7 @@
             const userCommand = event.results[0][0].transcript;
             transcriptEl.innerText = `"${userCommand}"`;
             
-            // Process command through Gemini API
+            // Send to Gemini
             await processWithChitti(userCommand);
         };
 
@@ -227,6 +259,11 @@
         };
 
         function toggleListening() {
+            if (!API_KEY) {
+                askForKey();
+                return;
+            }
+
             if (!isListening) {
                 window.speechSynthesis.cancel(); // Stop talking if currently speaking
                 recognition.start();
@@ -242,14 +279,24 @@
             statusEl.style.color = "#ffbb00";
 
             try {
-                const response = await fetch(GEMINI_URL, {
+                // The API key is securely handled in the headers, avoiding URL scanning bans
+                const fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
+                
+                const response = await fetch(fetchUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': API_KEY 
+                    },
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: promptText }] }],
                         systemInstruction: { parts: [{ text: systemInstruction }] }
                     })
                 });
+
+                if (!response.ok) {
+                    throw new Error(`Server Error: ${response.status}`);
+                }
 
                 const data = await response.json();
                 const aiReply = data.candidates[0].content.parts[0].text;
@@ -258,8 +305,9 @@
                 speakReply(aiReply);
 
             } catch (err) {
+                console.error(err);
                 resetUI("Error connecting to brain.");
-                transcriptEl.innerText = "Could not reach Gemini servers. Check connection.";
+                transcriptEl.innerText = "Could not reach Gemini. Make sure your API key is correct and disable AdBlockers.";
             }
         }
 
@@ -270,7 +318,6 @@
 
             const utterance = new SpeechSynthesisUtterance(text);
             
-            // Try selecting a natural Indian/English voice if available on system
             const voices = window.speechSynthesis.getVoices();
             const preferredVoice = voices.find(v => v.lang.includes('hi') || v.lang.includes('IN')) || voices[0];
             if (preferredVoice) utterance.voice = preferredVoice;
