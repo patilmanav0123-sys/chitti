@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHITTI AI ASSISTANT</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: #05070f;
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .header {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            letter-spacing: 4px;
+            color: #00f3ff;
+            text-shadow: 0 0 15px rgba(0, 243, 255, 0.6);
+        }
+
+        .header p {
+            font-size: 0.9rem;
+            color: #8899a6;
+            margin-top: 5px;
+        }
+
+        /* Animated Glowing Orb Interface */
+        .orb-container {
+            position: relative;
+            width: 220px;
+            height: 220px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: auto;
+        }
+
+        .orb {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #00f3ff 0%, #0044ff 70%, transparent 100%);
+            box-shadow: 0 0 50px #00f3ff, inset 0 0 30px #ffffff;
+            transition: all 0.3s ease;
+            animation: pulse 2.5s infinite ease-in-out;
+        }
+
+        .orb-ring {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            border: 2px dashed rgba(0, 243, 255, 0.4);
+            border-radius: 50%;
+            animation: spin 10s linear infinite;
+        }
+
+        /* Dynamic Visual States */
+        .listening .orb {
+            background: radial-gradient(circle, #00ff88 0%, #00aa44 70%, transparent 100%);
+            box-shadow: 0 0 80px #00ff88, inset 0 0 40px #ffffff;
+            transform: scale(1.15);
+        }
+
+        .speaking .orb {
+            background: radial-gradient(circle, #ff0055 0%, #990033 70%, transparent 100%);
+            box-shadow: 0 0 80px #ff0055, inset 0 0 40px #ffffff;
+            animation: vibrate 0.2s infinite ease-in-out;
+        }
+
+        .thinking .orb {
+            background: radial-gradient(circle, #ffbb00 0%, #aa7700 70%, transparent 100%);
+            box-shadow: 0 0 60px #ffbb00;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes vibrate {
+            0% { transform: scale(1.02); }
+            50% { transform: scale(1.08); }
+            100% { transform: scale(1.02); }
+        }
+
+        /* Terminal Subtitles Display */
+        .display-box {
+            width: 100%;
+            max-width: 600px;
+            background: rgba(16, 23, 42, 0.8);
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            margin-bottom: 20px;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .status {
+            font-size: 0.85rem;
+            color: #00f3ff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+
+        .transcript {
+            font-size: 1.1rem;
+            color: #e2e8f0;
+            line-height: 1.5;
+        }
+
+        /* Control Button */
+        .btn-talk {
+            background: linear-gradient(135deg, #00f3ff, #0055ff);
+            border: none;
+            color: #05070f;
+            font-weight: bold;
+            font-size: 1.2rem;
+            padding: 16px 45px;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 0 25px rgba(0, 243, 255, 0.4);
+            transition: all 0.2s ease;
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+        }
+
+        .btn-talk:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>CHITTI 2.0</h1>
+        <p>SPEED 1 THRESHOLD 1 GIGAHERTZ</p>
+    </div>
+
+    <div class="orb-container" id="orbContainer">
+        <div class="orb-ring"></div>
+        <div class="orb"></div>
+    </div>
+
+    <div class="display-box">
+        <div class="status" id="status">System Ready</div>
+        <div class="transcript" id="transcript">Tap "ACTIVATE CHITTI" to speak...</div>
+    </div>
+
+    <button class="btn-talk" id="talkBtn" onclick="toggleListening()">ACTIVATE CHITTI</button>
+
+    <script>
+        const API_KEY = "AQ.Ab8RN6ILFlNNNREBwvJQSfuNR8X07-Qjinfpynkd63ZUsSEpfA";
+        const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+        
+        const systemInstruction = "You are Chitti, an advanced, highly intelligent personal AI assistant inspired by the movie Robot. You speak fluently in English, Hindi, and Marathi. Keep responses natural, direct, concise, and helpful.";
+
+        const statusEl = document.getElementById('status');
+        const transcriptEl = document.getElementById('transcript');
+        const orbContainer = document.getElementById('orbContainer');
+        const talkBtn = document.getElementById('talkBtn');
+
+        let isListening = false;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            alert("Speech Recognition is not supported in this browser. Please use Google Chrome.");
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-IN'; // Works seamlessly across English, Hindi, and Marathi terms
+
+        recognition.onstart = () => {
+            isListening = true;
+            orbContainer.className = "orb-container listening";
+            statusEl.innerText = "Listening...";
+            statusEl.style.color = "#00ff88";
+            talkBtn.innerText = "LISTENING...";
+        };
+
+        recognition.onresult = async (event) => {
+            const userCommand = event.results[0][0].transcript;
+            transcriptEl.innerText = `"${userCommand}"`;
+            
+            // Process command through Gemini API
+            await processWithChitti(userCommand);
+        };
+
+        recognition.onerror = (event) => {
+            resetUI("Error hearing speech. Try again.");
+        };
+
+        recognition.onend = () => {
+            if (orbContainer.classList.contains('listening')) {
+                resetUI("Tap to speak again");
+            }
+        };
+
+        function toggleListening() {
+            if (!isListening) {
+                window.speechSynthesis.cancel(); // Stop talking if currently speaking
+                recognition.start();
+            } else {
+                recognition.stop();
+                resetUI("Tap to speak");
+            }
+        }
+
+        async function processWithChitti(promptText) {
+            orbContainer.className = "orb-container thinking";
+            statusEl.innerText = "Processing...";
+            statusEl.style.color = "#ffbb00";
+
+            try {
+                const response = await fetch(GEMINI_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: promptText }] }],
+                        systemInstruction: { parts: [{ text: systemInstruction }] }
+                    })
+                });
+
+                const data = await response.json();
+                const aiReply = data.candidates[0].content.parts[0].text;
+                
+                transcriptEl.innerText = aiReply;
+                speakReply(aiReply);
+
+            } catch (err) {
+                resetUI("Error connecting to brain.");
+                transcriptEl.innerText = "Could not reach Gemini servers. Check connection.";
+            }
+        }
+
+        function speakReply(text) {
+            orbContainer.className = "orb-container speaking";
+            statusEl.innerText = "Chitti Speaking...";
+            statusEl.style.color = "#ff0055";
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // Try selecting a natural Indian/English voice if available on system
+            const voices = window.speechSynthesis.getVoices();
+            const preferredVoice = voices.find(v => v.lang.includes('hi') || v.lang.includes('IN')) || voices[0];
+            if (preferredVoice) utterance.voice = preferredVoice;
+
+            utterance.onend = () => {
+                resetUI("System Ready");
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function resetUI(statusText) {
+            isListening = false;
+            orbContainer.className = "orb-container";
+            statusEl.innerText = statusText;
+            statusEl.style.color = "#00f3ff";
+            talkBtn.innerText = "ACTIVATE CHITTI";
+        }
+    </script>
+</body>
+</html>
