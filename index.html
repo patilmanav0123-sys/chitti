@@ -102,6 +102,13 @@
             text-shadow: 0 0 5px #000;
         }
 
+        /* Passive mode colors (Waiting for Wake Word) */
+        .passive .core-center {
+            background: radial-gradient(circle, #0055ff 10%, transparent 70%);
+            box-shadow: 0 0 20px #0055ff;
+            opacity: 0.7;
+        }
+
         .listening .core-center {
             background: radial-gradient(circle, #ff0055 10%, transparent 70%);
             box-shadow: 0 0 60px #ff0055;
@@ -198,30 +205,29 @@
 <body>
 
     <div class="hud-top">
-        <div class="hud-text">SYS.VER: CHITTI_OS_3.0</div>
-        <div class="hud-text" id="status-text">STATUS: IDLE</div>
+        <div class="hud-text">SYS.VER: CHITTI_OS_4.0</div>
+        <div class="hud-text" id="status-text">STATUS: RADAR OFFLINE</div>
     </div>
 
-    <div class="core-container" id="core">
+    <div class="core-container passive" id="core">
         <div class="core-ring-1"></div>
         <div class="core-ring-2"></div>
         <div class="core-ring-3"></div>
-        <div class="core-center" id="core-text">READY</div>
+        <div class="core-center" id="core-text">SLP</div>
     </div>
 
     <div class="terminal" id="terminal-box">
-        <div class="log-entry">> Voice engine initialized. Awaiting commands...</div>
+        <div class="log-entry">> Voice engine loaded. Tap [ POWER ON RADAR ] to begin loop.</div>
     </div>
 
     <div class="controls">
-        <button id="micBtn" onclick="toggleListening()">[ INITIATE UPLINK ]</button>
+        <button id="micBtn" onclick="startRadarLoop()">[ POWER ON RADAR ]</button>
         <button class="reset-btn" onclick="resetApiKey()">[ RESET KEY ]</button>
     </div>
 
     <script>
-        const systemInstruction = "You are Chitti, an elite AI assistant. Speak in short, highly intelligent, futuristic responses. You understand English, Hindi, and Marathi.";
+        const systemInstruction = "You are Chitti, an elite AI assistant. Speak in short, highly intelligent, natural responses. Do not use robotic language.";
 
-        // Added .trim() to prevent invisible spaces from breaking the API key
         let API_KEY = localStorage.getItem('CHITTI_API_KEY')?.trim();
         if (!API_KEY) { askForKey(); }
 
@@ -243,10 +249,18 @@
         const terminalBox = document.getElementById('terminal-box');
         const statusText = document.getElementById('status-text');
         
-        let isListening = false;
+        // System States
+        let isAwake = false;       // Determines if she heard her name yet
+        let aiIsSpeaking = false;  // Prevents her from hearing her own voice
+        let radarActive = false;   // Determines if the mic loop is running
+
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
         recognition.lang = 'en-IN';
+        recognition.continuous = false; // We manually loop it so Android doesn't time out
+
+        // 1. Force load voices immediately so they are ready
+        window.speechSynthesis.getVoices();
 
         function logToTerminal(sender, message) {
             const entry = document.createElement('div');
@@ -266,60 +280,79 @@
 
         function setUIState(state) {
             coreEl.className = `core-container ${state}`;
-            if(state === 'listening') {
+            if (state === 'passive') {
+                coreText.innerText = "SLP";
+                statusText.innerText = "STATUS: PASSIVE RADAR (AWAITING WAKE WORD)";
+            } else if(state === 'listening') {
                 coreText.innerText = "REC";
-                statusText.innerText = "STATUS: LISTENING";
+                statusText.innerText = "STATUS: ACTIVE LISTENING";
             } else if (state === 'thinking') {
                 coreText.innerText = "PRC";
                 statusText.innerText = "STATUS: PROCESSING";
             } else if (state === 'speaking') {
                 coreText.innerText = "OUT";
                 statusText.innerText = "STATUS: TRANSMITTING";
-            } else {
-                coreText.innerText = "READY";
-                statusText.innerText = "STATUS: IDLE";
             }
         }
 
         recognition.onstart = () => {
-            isListening = true;
-            setUIState('listening');
-        };
-
-        recognition.onresult = async (event) => {
-            const userCommand = event.results[0][0].transcript;
-            logToTerminal('USER', userCommand);
-            await processWithChitti(userCommand);
-        };
-
-        recognition.onerror = () => {
-            logToTerminal('SYS_ERR', "AUDIO INPUT ERROR.");
-            setUIState('idle');
-            isListening = false;
-        };
-
-        recognition.onend = () => {
-            if (coreEl.classList.contains('listening')) {
-                setUIState('idle');
-                isListening = false;
-            }
-        };
-
-        function toggleListening() {
-            if (!API_KEY) { askForKey(); return; }
-            if (!isListening) {
-                window.speechSynthesis.cancel();
-                recognition.start();
-            } else {
+            if (aiIsSpeaking) {
                 recognition.stop();
+                return;
             }
+            if (!isAwake) {
+                setUIState('passive');
+            } else {
+                setUIState('listening');
+            }
+        };
+
+        // 2. The Wake Word Engine Logic
+        recognition.onresult = async (event) => {
+            const userCommand = event.results[0][0].transcript.toLowerCase();
+            
+            if (!isAwake) {
+                // If she hears her name, wake up immediately!
+                if (userCommand.includes("chitti") || userCommand.includes("city")) {
+                    isAwake = true; // Switch state
+                    logToTerminal('USER', "[ WAKE WORD DETECTED ]");
+                    // Speak her greeting, the 'true' flag means listen for command immediately after
+                    speakReply("Yes boss? Tell me.", true);
+                }
+            } else {
+                // She was already awake, so this is your command!
+                isAwake = false; // Go back to sleep state after command is taken
+                logToTerminal('USER', userCommand);
+                await processWithChitti(userCommand);
+            }
+        };
+
+        // 3. The Auto-Loop (Never Stops)
+        recognition.onend = () => {
+            if (radarActive && !aiIsSpeaking) {
+                try { recognition.start(); } catch(e) {}
+            }
+        };
+
+        recognition.onerror = (e) => {
+            if (e.error !== "no-speech") {
+                console.log("Mic Error:", e.error);
+            }
+        };
+
+        function startRadarLoop() {
+            if (!API_KEY) { askForKey(); return; }
+            radarActive = true;
+            isAwake = false;
+            logToTerminal('SYS', "Radar loop active. Say 'Chitti' to wake her up.");
+            try { recognition.start(); } catch(e) {}
         }
 
         async function processWithChitti(promptText) {
             setUIState('thinking');
 
             try {
-                // The API key MUST be sent in the header, no longer in the URL
+                // Pointing to the absolute newest Gemini 3.7 model
                 const fetchUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent`;
                 
                 const response = await fetch(fetchUrl, {
@@ -343,29 +376,53 @@
                 const aiReply = data.candidates[0].content.parts[0].text;
                 
                 logToTerminal('CHITTI', aiReply);
-                speakReply(aiReply);
+                
+                // Speak reply, the 'false' flag means go back to sleep/radar mode after
+                speakReply(aiReply, false);
 
             } catch (err) {
-                // Now Chitti will print the exact server error out loud to the terminal!
-                if(err.message === 'Failed to fetch') {
-                    logToTerminal('SYS_ERR', "CORS or AdBlocker blocked the connection. Turn off Brave Shields/AdGuard.");
-                } else {
-                    logToTerminal('SYS_ERR', err.message);
-                }
-                setUIState('idle');
+                logToTerminal('SYS_ERR', err.message);
+                setUIState('passive');
             }
         }
 
-        function speakReply(text) {
+        // 4. Smooth Human-Like Voice Injection
+        function speakReply(text, expectCommandAfter) {
+            aiIsSpeaking = true;
+            try { recognition.stop(); } catch(e) {} // Mute the mic so she doesn't hear herself talk
+            
             setUIState('speaking');
             const utterance = new SpeechSynthesisUtterance(text);
-            const voices = window.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(v => v.lang.includes('hi') || v.lang.includes('IN')) || voices[0];
-            if (preferredVoice) utterance.voice = preferredVoice;
+            
+            // Tweak the vocal cords to sound less robotic
+            utterance.rate = 1.05; 
+            utterance.pitch = 1.1;
 
+            const voices = window.speechSynthesis.getVoices();
+            
+            // Force the browser to hunt for premium Google network voices instead of local robotic ones
+            let bestVoice = voices.find(v => (v.name.includes('Google') || v.name.includes('Online')) && (v.lang.includes('hi') || v.lang.includes('IN')));
+            if (!bestVoice) bestVoice = voices.find(v => v.name.includes('Google') && v.lang.includes('GB'));
+            if (!bestVoice) bestVoice = voices.find(v => v.lang.includes('en-IN') || v.lang.includes('hi'));
+            
+            if (bestVoice) utterance.voice = bestVoice;
+
+            // When she finishes speaking...
             utterance.onend = () => {
-                setUIState('idle');
+                aiIsSpeaking = false;
+                if (expectCommandAfter) {
+                    // Start mic instantly in Active Command mode
+                    isAwake = true;
+                    setUIState('listening');
+                    try { recognition.start(); } catch(e) {}
+                } else {
+                    // Start mic quietly in Passive Radar mode
+                    isAwake = false;
+                    setUIState('passive');
+                    try { recognition.start(); } catch(e) {}
+                }
             };
+            
             window.speechSynthesis.speak(utterance);
         }
     </script>
